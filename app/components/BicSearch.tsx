@@ -4,22 +4,33 @@ import { useState, useEffect } from "react";
 import { validateBIC, parseBIC, loadBlzData, IBAN_COUNTRIES, type BlzEntry } from "@/lib/iban";
 
 export default function BicSearch() {
-  const [mode, setMode] = useState<"blz" | "bic">("blz");
+  const [mode, setMode] = useState<"blz" | "bic" | "name">("blz");
   const [query, setQuery] = useState("");
   const [blzResult, setBlzResult] = useState<BlzEntry | null | "not-found">(null);
   const [bicResults, setBicResults] = useState<BlzEntry[]>([]);
+  const [nameResults, setNameResults] = useState<BlzEntry[]>([]);
   const [bicValidation, setBicValidation] = useState<ReturnType<typeof validateBIC> | null>(null);
   const [blzList, setBlzList] = useState<BlzEntry[]>([]);
   const [blzMap, setBlzMap] = useState<Map<string, BlzEntry> | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
-    loadBlzData().then(({ list, map }) => {
-      setBlzList(list);
-      setBlzMap(map);
-      setLoaded(true);
-    });
+    loadBlzData()
+      .then(({ list, map }) => { setBlzList(list); setBlzMap(map); setLoaded(true); })
+      .catch(() => setLoadError(true));
   }, []);
+
+  // Live search for name mode
+  useEffect(() => {
+    if (mode !== "name" || !loaded) return;
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) { setNameResults([]); return; }
+    const matches = blzList.filter(e =>
+      e.name.toLowerCase().includes(q) || e.ort.toLowerCase().includes(q)
+    ).slice(0, 50);
+    setNameResults(matches);
+  }, [query, mode, loaded, blzList]);
 
   function handleSearch() {
     if (!loaded) return;
@@ -27,83 +38,99 @@ export default function BicSearch() {
     if (!clean) return;
 
     if (mode === "blz") {
-      const entry = blzMap?.get(clean) ?? null;
-      setBlzResult(entry ?? "not-found");
-    } else {
+      setBlzResult(blzMap?.get(clean) ?? "not-found");
+    } else if (mode === "bic") {
       const validation = validateBIC(clean);
       setBicValidation(validation);
       if (validation.valid) {
-        // Match on first 8 chars (ignore branch suffix)
         const prefix = clean.slice(0, 8);
-        const matches = blzList.filter(e => e.bic.startsWith(prefix));
-        setBicResults(matches);
+        setBicResults(blzList.filter(e => e.bic.startsWith(prefix)));
       } else {
         setBicResults([]);
       }
     }
   }
 
-  function switchMode(m: "blz" | "bic") {
+  function switchMode(m: typeof mode) {
     setMode(m);
     setQuery("");
     setBlzResult(null);
     setBicResults([]);
     setBicValidation(null);
+    setNameResults([]);
   }
 
   const bicParsed = mode === "bic" && query.length >= 8 ? parseBIC(query) : null;
+
+  const MODES = [
+    { id: "blz" as const, label: "BLZ → BIC" },
+    { id: "bic" as const, label: "BIC → BLZ" },
+    { id: "name" as const, label: "Bankname" },
+  ];
 
   return (
     <div className="space-y-5">
       {/* Mode toggle */}
       <div className="flex gap-2">
-        {(["blz", "bic"] as const).map((m) => (
+        {MODES.map((m) => (
           <button
-            key={m}
-            onClick={() => switchMode(m)}
+            key={m.id}
+            onClick={() => switchMode(m.id)}
             className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-              mode === m
+              mode === m.id
                 ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 dark:border-blue-600"
                 : "border-zinc-200 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
             }`}
           >
-            {m === "blz" ? "BLZ → BIC" : "BIC → BLZ"}
+            {m.label}
           </button>
         ))}
       </div>
 
+      {loadError && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400">
+          BLZ-Daten konnten nicht geladen werden. Bitte Seite neu laden.
+        </div>
+      )}
+
       {/* Input */}
       <div>
         <label className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          {mode === "blz" ? "Bankleitzahl eingeben" : "BIC / SWIFT-Code eingeben"}
+          {mode === "blz" ? "Bankleitzahl" : mode === "bic" ? "BIC / SWIFT-Code" : "Bank- oder Ortsname"}
         </label>
         <div className="flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => {
-              setQuery(e.target.value.replace(mode === "blz" ? /\D/g : /\s/g, "").toUpperCase());
-              setBlzResult(null);
-              setBicResults([]);
-              setBicValidation(null);
+              const val = mode === "blz" ? e.target.value.replace(/\D/g, "") :
+                          mode === "bic" ? e.target.value.replace(/\s/g, "").toUpperCase() :
+                          e.target.value;
+              setQuery(val);
+              if (mode !== "name") { setBlzResult(null); setBicResults([]); setBicValidation(null); }
             }}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            placeholder={mode === "blz" ? "z.B. 37040044" : "z.B. COBADEFFXXX"}
-            maxLength={mode === "blz" ? 8 : 11}
+            onKeyDown={(e) => e.key === "Enter" && mode !== "name" && handleSearch()}
+            placeholder={mode === "blz" ? "z.B. 37040044" : mode === "bic" ? "z.B. COBADEFFXXX" : "z.B. Sparkasse München"}
+            maxLength={mode === "blz" ? 8 : mode === "bic" ? 11 : 60}
             className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 font-mono text-sm text-zinc-900 placeholder-zinc-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-600"
           />
-          <button
-            onClick={handleSearch}
-            disabled={!loaded || !query}
-            className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {loaded ? "Suchen" : "Lade…"}
-          </button>
+          {mode !== "name" && (
+            <button
+              onClick={handleSearch}
+              disabled={!loaded || !query}
+              className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {loaded ? "Suchen" : "Lade…"}
+            </button>
+          )}
         </div>
         {mode === "bic" && bicParsed && (
           <p className="mt-1.5 text-xs text-zinc-400">
             Bank: <span className="font-mono">{bicParsed.bank}</span> · Land: <span className="font-mono">{bicParsed.country}</span> ({IBAN_COUNTRIES[bicParsed.country]?.label ?? "unbekannt"}) · Standort: <span className="font-mono">{bicParsed.location}</span> · Filiale: <span className="font-mono">{bicParsed.branch}</span>
           </p>
+        )}
+        {mode === "name" && query.length > 0 && query.length < 2 && (
+          <p className="mt-1 text-xs text-zinc-400">Mindestens 2 Zeichen eingeben</p>
         )}
       </div>
 
@@ -123,26 +150,7 @@ export default function BicSearch() {
           ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
               Keine Bank für BLZ {query} gefunden
             </div>
-          : <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50 space-y-3">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                <div>
-                  <span className="text-xs text-zinc-400">Bank</span>
-                  <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{blzResult.name}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-zinc-400">Ort</span>
-                  <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{blzResult.ort}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-zinc-400">BIC / SWIFT</span>
-                  <p className="font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-200">{blzResult.bic}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-zinc-400">BLZ</span>
-                  <p className="font-mono text-sm font-medium text-zinc-800 dark:text-zinc-200">{blzResult.blz}</p>
-                </div>
-              </div>
-            </div>
+          : <ResultCard entry={blzResult} />
       )}
 
       {/* BIC-Ergebnisse */}
@@ -151,27 +159,57 @@ export default function BicSearch() {
           ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
               Keine deutschen Banken für diesen BIC gefunden
             </div>
-          : <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
-              <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                  {bicResults.length} Treffer
-                </p>
-              </div>
-              <div className="max-h-64 overflow-y-auto">
-                {bicResults.map((entry) => (
-                  <div key={entry.blz} className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/50">
-                    <div>
-                      <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{entry.name}</p>
-                      <p className="text-xs text-zinc-400">{entry.ort}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-mono text-xs text-zinc-500">{entry.blz}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+          : <ResultList entries={bicResults} />
       )}
+
+      {/* Bankname-Ergebnisse */}
+      {mode === "name" && nameResults.length > 0 && (
+        <ResultList entries={nameResults} showBic />
+      )}
+      {mode === "name" && query.length >= 2 && nameResults.length === 0 && loaded && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+          Keine Banken gefunden für „{query}"
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResultCard({ entry }: { entry: BlzEntry }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-4 dark:border-zinc-700 dark:bg-zinc-800/50">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+        <div><span className="text-xs text-zinc-400">Bank</span><p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">{entry.name}</p></div>
+        <div><span className="text-xs text-zinc-400">Ort</span><p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{entry.ort}</p></div>
+        <div><span className="text-xs text-zinc-400">BIC / SWIFT</span><p className="font-mono text-sm font-semibold text-zinc-800 dark:text-zinc-200">{entry.bic}</p></div>
+        <div><span className="text-xs text-zinc-400">BLZ</span><p className="font-mono text-sm font-medium text-zinc-800 dark:text-zinc-200">{entry.blz}</p></div>
+      </div>
+    </div>
+  );
+}
+
+function ResultList({ entries, showBic = false }: { entries: BlzEntry[]; showBic?: boolean }) {
+  return (
+    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+      <div className="border-b border-zinc-100 bg-zinc-50 px-4 py-2 dark:border-zinc-700 dark:bg-zinc-800/50">
+        <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+          {entries.length} Treffer{entries.length === 50 ? " (max.)" : ""}
+        </p>
+      </div>
+      <div className="max-h-64 overflow-y-auto">
+        {entries.map((entry) => (
+          <div key={entry.blz} className="flex items-center justify-between border-b border-zinc-100 px-4 py-2.5 last:border-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/50">
+            <div>
+              <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{entry.name}</p>
+              <p className="text-xs text-zinc-400">{entry.ort}</p>
+            </div>
+            <div className="text-right shrink-0 ml-3">
+              <p className="font-mono text-xs text-zinc-500">{entry.blz}</p>
+              {showBic && <p className="font-mono text-xs text-zinc-400">{entry.bic}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

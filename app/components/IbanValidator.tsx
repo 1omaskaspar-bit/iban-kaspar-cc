@@ -5,6 +5,7 @@ import {
   validateIBAN,
   parseIBAN,
   formatIBAN,
+  IBAN_COUNTRIES,
   loadBlzData,
   type BlzEntry,
 } from "@/lib/iban";
@@ -27,23 +28,48 @@ export default function IbanValidator() {
   const [blzMap, setBlzMap] = useState<Map<string, BlzEntry> | null>(null);
 
   useEffect(() => {
-    loadBlzData().then(({ map }) => setBlzMap(map));
+    loadBlzData()
+      .then(({ map }) => setBlzMap(map))
+      .catch(() => {}); // silent — bank info simply won't show
   }, []);
 
-  function handleCheck() {
-    const clean = input.replace(/\s/g, "").toUpperCase();
-    if (!clean) return;
+  function runCheck(raw: string) {
+    const clean = raw.replace(/\s/g, "").toUpperCase();
+    if (!clean) { setResult(null); setParsed(null); setBankInfo(null); return; }
+
     const validation = validateIBAN(clean);
     setResult(validation);
-    const p = parseIBAN(clean);
-    setParsed(p);
-    setBankInfo(null);
-    if (validation.valid && p?.blz && blzMap) {
-      setBankInfo(blzMap.get(p.blz) ?? null);
+
+    if (validation.valid) {
+      const p = parseIBAN(clean);
+      setParsed(p);
+      setBankInfo(p?.blz && blzMap ? (blzMap.get(p.blz) ?? null) : null);
+    } else {
+      setParsed(null);
+      setBankInfo(null);
     }
   }
 
-  function handleFormatted() {
+  function handleChange(val: string) {
+    const upper = val.toUpperCase();
+    setInput(upper);
+    setCopied(false);
+
+    const clean = upper.replace(/\s/g, "");
+    const country = clean.slice(0, 2);
+    const expectedLen = IBAN_COUNTRIES[country]?.length;
+
+    // Auto-check when length matches the expected IBAN length for the country
+    if (expectedLen && clean.length === expectedLen) {
+      runCheck(clean);
+    } else {
+      setResult(null);
+      setParsed(null);
+      setBankInfo(null);
+    }
+  }
+
+  function handleBlur() {
     const clean = input.replace(/\s/g, "").toUpperCase();
     if (clean.length >= 4) setInput(formatIBAN(clean));
   }
@@ -54,38 +80,17 @@ export default function IbanValidator() {
     <div className="space-y-5">
       <div>
         <label className="mb-1.5 block text-sm font-medium text-zinc-700 dark:text-zinc-300">IBAN eingeben</label>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => {
-              setInput(e.target.value.toUpperCase());
-              setResult(null);
-              setParsed(null);
-              setBankInfo(null);
-            }}
-            onKeyDown={(e) => e.key === "Enter" && handleCheck()}
-            placeholder="DE89 3704 0044 0532 0130 00"
-            className="flex-1 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 font-mono text-sm text-zinc-900 placeholder-zinc-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-600"
-          />
-          <button
-            type="button"
-            onClick={handleFormatted}
-            title="Formatieren"
-            className="rounded-lg border border-zinc-200 px-3 py-2.5 text-xs text-zinc-500 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-          >
-            Format
-          </button>
-        </div>
+        <input
+          type="text"
+          value={input}
+          onChange={(e) => handleChange(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={(e) => e.key === "Enter" && runCheck(input)}
+          placeholder="DE89 3704 0044 0532 0130 00"
+          className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2.5 font-mono text-sm text-zinc-900 placeholder-zinc-300 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-600"
+        />
+        <p className="mt-1 text-xs text-zinc-400">Wird automatisch geprüft · Auto-Formatierung beim Verlassen des Feldes</p>
       </div>
-
-      <button
-        onClick={handleCheck}
-        disabled={!cleanIban}
-        className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40 dark:focus:ring-offset-zinc-900"
-      >
-        IBAN prüfen
-      </button>
 
       {/* Validierungsergebnis */}
       {result && (
@@ -131,13 +136,11 @@ export default function IbanValidator() {
             {parsed.konto && <Field label="Kontonummer" value={parsed.konto.replace(/^0+/, "") || "0"} mono />}
           </div>
 
-          {/* IBAN formatiert */}
           <div className="mt-3 rounded-lg bg-white px-3 py-2 dark:bg-zinc-900">
             <span className="text-xs text-zinc-400">Formatiert</span>
             <p className="font-mono text-sm font-medium text-zinc-800 dark:text-zinc-200">{formatIBAN(cleanIban)}</p>
           </div>
 
-          {/* Bank-Info für DE */}
           {parsed.blz && (
             <div className="mt-3 rounded-lg bg-white px-3 py-2 dark:bg-zinc-900">
               <span className="text-xs text-zinc-400">Bank</span>

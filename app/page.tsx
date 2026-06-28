@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Suspense } from "react";
 import dynamic from "next/dynamic";
 
 const IbanCalculator = dynamic(() => import("@/app/components/IbanCalculator"), { ssr: false });
@@ -12,11 +13,20 @@ type Tab = "calc" | "validate" | "bic";
 const TABS: { id: Tab; label: string; desc: string }[] = [
   { id: "calc",     label: "IBAN berechnen", desc: "Aus BLZ und Kontonummer" },
   { id: "validate", label: "IBAN prüfen",    desc: "Validieren und zerlegen" },
-  { id: "bic",      label: "BIC suchen",     desc: "BLZ ↔ BIC Lookup" },
+  { id: "bic",      label: "BIC suchen",     desc: "BLZ ↔ BIC · Bankname" },
 ];
 
-export default function Home() {
-  const [tab, setTab] = useState<Tab>("calc");
+function IbanApp() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const raw = searchParams.get("tab") ?? "calc";
+  const tab: Tab = (["calc", "validate", "bic"] as Tab[]).includes(raw as Tab) ? (raw as Tab) : "calc";
+
+  function setTab(t: Tab) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", t);
+    router.push(`?${params.toString()}`, { scroll: false });
+  }
 
   return (
     <div className="flex flex-col flex-1 items-center justify-start min-h-screen bg-zinc-50 dark:bg-zinc-950 px-4 py-12">
@@ -56,9 +66,17 @@ export default function Home() {
         </div>
 
         <p className="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-600">
-          Alle Berechnungen erfolgen lokal im Browser. BLZ-Daten: Deutsche Bundesbank.
+          Alle Berechnungen erfolgen lokal im Browser · BLZ-Daten: Deutsche Bundesbank
         </p>
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense>
+      <IbanApp />
+    </Suspense>
   );
 }

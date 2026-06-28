@@ -189,14 +189,21 @@ export function parseBIC(bic: string): { bank: string; country: string; location
   };
 }
 
-// BLZ data loader (singleton, lazy)
-let blzCache: BlzEntry[] | null = null;
-let blzMap: Map<string, BlzEntry> | null = null;
+// BLZ data loader — Promise-cached to prevent parallel fetches
+let blzPromise: Promise<{ list: BlzEntry[]; map: Map<string, BlzEntry> }> | null = null;
 
-export async function loadBlzData(): Promise<{ list: BlzEntry[]; map: Map<string, BlzEntry> }> {
-  if (blzCache && blzMap) return { list: blzCache, map: blzMap };
-  const res = await fetch("/blz-data.json");
-  blzCache = await res.json();
-  blzMap = new Map(blzCache!.map(e => [e.blz, e]));
-  return { list: blzCache!, map: blzMap };
+export function loadBlzData(): Promise<{ list: BlzEntry[]; map: Map<string, BlzEntry> }> {
+  if (!blzPromise) {
+    blzPromise = fetch("/blz-data.json")
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json() as Promise<BlzEntry[]>;
+      })
+      .then((list) => ({ list, map: new Map(list.map((e) => [e.blz, e])) }))
+      .catch((err) => {
+        blzPromise = null; // allow retry on next call
+        throw err;
+      });
+  }
+  return blzPromise;
 }
