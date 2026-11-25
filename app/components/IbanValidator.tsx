@@ -14,7 +14,7 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
   return (
     <div>
       <span className="text-xs text-zinc-400 dark:text-zinc-500">{label}</span>
-      <p className={`text-sm text-zinc-800 dark:text-zinc-200 ${mono ? "font-mono" : "font-medium"}`}>{value}</p>
+      <p className={`text-sm text-zinc-800 dark:text-zinc-200 ${mono ? "font-mono break-all" : "font-medium"}`}>{value}</p>
     </div>
   );
 }
@@ -32,6 +32,11 @@ export default function IbanValidator() {
       .then(({ map }) => setBlzMap(map))
       .catch(() => {}); // silent — bank info simply won't show
   }, []);
+
+  // Bankliste kann nach der Pruefung fertig werden — dann Bank nachtragen
+  useEffect(() => {
+    if (blzMap && parsed?.country === "DE" && parsed.blz) setBankInfo(blzMap.get(parsed.blz) ?? null);
+  }, [blzMap, parsed]);
 
   function runCheck(raw: string) {
     const clean = raw.replace(/\s/g, "").toUpperCase();
@@ -138,7 +143,7 @@ export default function IbanValidator() {
 
           <div className="mt-3 rounded-lg bg-white px-3 py-2 dark:bg-zinc-900">
             <span className="text-xs text-zinc-400">Formatiert</span>
-            <p className="font-mono text-sm font-medium text-zinc-800 dark:text-zinc-200">{formatIBAN(cleanIban)}</p>
+            <p className="font-mono break-all text-sm font-medium text-zinc-800 dark:text-zinc-200">{formatIBAN(cleanIban)}</p>
           </div>
 
           {parsed.blz && (

@@ -40,6 +40,12 @@ export default function IbanCalculator() {
     setBankInfo(blzMap.get(val) ?? null);
   }, [country, blzMap]);
 
+  // Bankliste kann nach der Eingabe fertig werden — dann Bank nachtragen
+  useEffect(() => {
+    const clean = blz.replace(/\s/g, "");
+    if (blzMap && country === "DE" && clean.length === 8) setBankInfo(blzMap.get(clean) ?? null);
+  }, [blzMap, blz, country]);
+
   // Auto-calculate for structured countries when both fields are complete
   useEffect(() => {
     if (!structured) return;
